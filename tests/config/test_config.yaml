@@ -1,0 +1,98 @@
+# A 股日报 - 测试环境配置
+# 测试负责人：Agent_E
+
+# 环境配置
+environment:
+  # 开发环境
+  dev:
+    base_url: "http://localhost:8080"
+    timeout: 5
+    debug: true
+  
+  # 测试环境
+  test:
+    base_url: "http://test-server:8080"
+    timeout: 10
+    debug: false
+  
+  # 预发布环境
+  staging:
+    base_url: "http://staging-server:8080"
+    timeout: 10
+    debug: false
+  
+  # 生产环境（只读测试）
+  prod:
+    base_url: "https://api.example.com"
+    timeout: 15
+    debug: false
+
+# 测试数据配置
+test_data:
+  # 测试股票列表
+  stocks:
+    - code: "600519"
+      name: "贵州茅台"
+      exchange: "SH"
+    - code: "000858"
+      name: "五粮液"
+      exchange: "SZ"
+    - code: "300750"
+      name: "宁德时代"
+      exchange: "SZ"
+    - code: "000001"
+      name: "平安银行"
+      exchange: "SZ"
+    - code: "601318"
+      name: "中国平安"
+      exchange: "SH"
+  
+  # 无效测试数据
+  invalid_stocks:
+    - "999999"
+    - "000000"
+    - "abc123"
+  
+  # 搜索测试关键字
+  search_keywords:
+    - "茅台"
+    - "平安"
+    - "银行"
+    - "不存在的股票"
+
+# 性能测试配置
+performance:
+  # 并发测试配置
+  concurrency:
+    light: 10
+    medium: 50
+    heavy: 100
+    stress: 500
+  
+  # 持续时间（秒）
+  duration:
+    smoke: 60
+    load: 300
+    stress: 600
+  
+  # 性能指标阈值
+  thresholds:
+    response_time_p95: 500  # ms
+    response_time_p99: 1000 # ms
+    error_rate: 1.0         # %
+    qps_min: 100
+
+# 测试报告配置
+report:
+  output_dir: "reports"
+  format: ["json", "markdown"]
+  include_request_logs: false
+  screenshot_on_failure: false
+
+# 通知配置
+notification:
+  enabled: true
+  channels:
+    - feishu
+  on_failure: true
+  on_success: false
