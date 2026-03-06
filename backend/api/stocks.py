@@ -1,127 +1,159 @@
-from fastapi import APIRouter, HTTPException
-from typing import List
+from fastapi import APIRouter, HTTPException, Query
+from typing import List, Optional
 from datetime import datetime
-import random
+
+from services.market_service import get_market_index_data, get_stock_data, get_ranking_data
+from models import MarketIndex, StockInfo, RankingItem
 
 router = APIRouter(prefix="/api")
 
 
-def _generate_mock_data():
-    """生成模拟数据"""
-    stocks_db = {
-        "600000": {"name": "浦发银行", "base_price": 12.50},
-        "600036": {"name": "招商银行", "base_price": 35.80},
-        "600519": {"name": "贵州茅台", "base_price": 1680.00},
-        "000001": {"name": "平安银行", "base_price": 12.30},
-        "000002": {"name": "万科A", "base_price": 8.90},
-        "300750": {"name": "宁德时代", "base_price": 185.60},
-        "601318": {"name": "中国平安", "base_price": 48.50},
-        "600276": {"name": "恒瑞医药", "base_price": 52.30},
-    }
-    
-    indices = {
-        "shanghai": {"index": 3420.50 + random.uniform(-20, 20), "change_percent": 0.65 + random.uniform(-0.3, 0.3)},
-        "shenzhen": {"index": 11580.30 + random.uniform(-50, 50), "change_percent": 1.15 + random.uniform(-0.3, 0.3)},
-        "chinext": {"index": 2480.60 + random.uniform(-20, 20), "change_percent": 1.85 + random.uniform(-0.3, 0.3)},
-    }
-    
-    return stocks_db, indices
+@router.get("/market/overview")
+async def get_market_overview():
+    """获取大盘行情 - 真实数据"""
+    try:
+        indices = await get_market_index_data()
+        
+        if not indices:
+            raise HTTPException(status_code=503, detail="无法获取行情数据")
+        
+        # 转换为前端期望的格式
+        result = {}
+        for idx in indices:
+            key = "shanghai" if idx.code == "000001" else ("shenzhen" if idx.code == "399001" else "chinext")
+            result[key] = {
+                "index": idx.current,
+                "change_percent": idx.change_pct,
+                "volume": idx.volume,
+                "change": idx.change,
+                "open": idx.open,
+                "high": idx.high,
+                "low": idx.low,
+                "prev_close": idx.prev_close
+            }
+        
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"大盘行情接口错误：{e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
-# 注意：静态路由必须放在路径参数路由之前
+@router.get("/stocks/{code}")
+async def get_stock_detail(code: str):
+    """获取个股详情 - 真实数据"""
+    try:
+        stock = await get_stock_data(code)
+        
+        if not stock:
+            raise HTTPException(status_code=404, detail="未找到该股票")
+        
+        return {
+            "code": stock.code,
+            "name": stock.name,
+            "current_price": stock.current,
+            "change": stock.change,
+            "change_percent": stock.change_pct,
+            "volume": stock.volume,
+            "amount": stock.amount,
+            "open": stock.open,
+            "high": stock.high,
+            "low": stock.low,
+            "prev_close": stock.prev_close,
+            "last_updated": stock.updated_at
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"个股详情接口错误：{e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/stocks/rankings")
-async def get_stock_rankings(limit: int = 20):
-    """获取涨跌幅排行榜"""
-    stocks_db, _ = _generate_mock_data()
-    
-    rankings = []
-    for code, info in stocks_db.items():
-        change = random.uniform(-8, 8)
-        rankings.append({
-            "code": code,
-            "name": info["name"],
-            "current_price": round(info["base_price"] * (1 + change / 100), 2),
-            "change": round(info["base_price"] * change / 100, 2),
-            "change_percent": round(change, 2),
-            "volume": random.randint(1000000, 50000000)
-        })
-    
-    rankings_up = sorted(rankings, key=lambda x: x["change_percent"], reverse=True)[:limit]
-    rankings_down = sorted(rankings, key=lambda x: x["change_percent"])[:limit]
-    
-    return {"up": rankings_up, "down": rankings_down}
+async def get_stock_rankings(
+    limit: int = Query(default=20, ge=1, le=100)
+):
+    """获取涨跌幅排行榜 - 真实数据"""
+    try:
+        # 获取涨幅榜和跌幅榜
+        up_rankings = await get_ranking_data(rank_type="up", limit=limit)
+        down_rankings = await get_ranking_data(rank_type="down", limit=limit)
+        
+        return {
+            "up": [
+                {
+                    "rank": r.rank,
+                    "code": r.code,
+                    "name": r.name,
+                    "current_price": r.current,
+                    "change": r.change,
+                    "change_percent": r.change_pct,
+                    "volume": r.volume,
+                    "amount": r.amount
+                }
+                for r in up_rankings
+            ],
+            "down": [
+                {
+                    "rank": r.rank,
+                    "code": r.code,
+                    "name": r.name,
+                    "current_price": r.current,
+                    "change": r.change,
+                    "change_percent": r.change_pct,
+                    "volume": r.volume,
+                    "amount": r.amount
+                }
+                for r in down_rankings
+            ]
+        }
+    except Exception as e:
+        print(f"排行榜接口错误：{e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/search")
 async def search_stocks(q: str):
     """股票搜索"""
-    stocks_db, _ = _generate_mock_data()
-    
-    results = []
-    for code, info in stocks_db.items():
-        if q.lower() in info["name"].lower() or q in code:
-            results.append({
-                "code": code,
-                "name": info["name"],
-                "current_price": info["base_price"]
-            })
-    
-    return {"results": results}
-
-
-@router.get("/stocks/{code}")
-async def get_stock_detail(code: str):
-    """获取个股详情"""
-    stocks_db, _ = _generate_mock_data()
-    
-    if code not in stocks_db:
-        for k, v in stocks_db.items():
-            if k.startswith(code[:3]):
-                code = k
-                break
-        else:
-            raise HTTPException(status_code=404, detail="Stock not found")
-    
-    stock = stocks_db[code]
-    change = random.uniform(-3, 3)
-    current_price = stock["base_price"] * (1 + change / 100)
-    
-    return {
-        "code": code,
-        "name": stock["name"],
-        "current_price": round(current_price, 2),
-        "change": round(stock["base_price"] * change / 100, 2),
-        "change_percent": round(change, 2),
-        "volume": random.randint(1000000, 50000000),
-        "amount": random.randint(50000000, 5000000000),
-        "open": round(stock["base_price"] * (1 + random.uniform(-0.5, 0.5) / 100), 2),
-        "high": round(stock["base_price"] * (1 + random.uniform(0, 2) / 100), 2),
-        "low": round(stock["base_price"] * (1 + random.uniform(-2, 0) / 100), 2),
-        "prev_close": stock["base_price"],
-        "last_updated": datetime.now().isoformat()
-    }
-
-
-@router.get("/market/overview")
-async def get_market_overview():
-    """获取大盘概览"""
-    _, indices = _generate_mock_data()
-    return {
-        "shanghai": {
-            "index": round(indices["shanghai"]["index"], 2),
-            "change_percent": round(indices["shanghai"]["change_percent"], 2),
-            "volume": random.randint(30000000000, 50000000000)
-        },
-        "shenzhen": {
-            "index": round(indices["shenzhen"]["index"], 2),
-            "change_percent": round(indices["shenzhen"]["change_percent"], 2),
-            "volume": random.randint(25000000000, 45000000000)
-        },
-        "chinext": {
-            "index": round(indices["chinext"]["index"], 2),
-            "change_percent": round(indices["chinext"]["change_percent"], 2),
-            "volume": random.randint(10000000000, 25000000000)
-        }
-    }
+    try:
+        # 使用 adata 获取所有股票代码
+        import adata.stock.info as info
+        
+        all_codes = info.all_code()
+        results = []
+        
+        # 搜索匹配
+        for _, row in all_codes.iterrows():
+            code = row.get('stock_code', '')
+            name = row.get('short_name', '')
+            
+            if q.lower() in name.lower() or q in code:
+                # 获取实时行情
+                try:
+                    import adata.stock.market as market
+                    full_code = f"sh.{code}" if code.startswith('6') else f"sz.{code}"
+                    df = market.get_market(stock_code=full_code, k_type=1)
+                    
+                    if not df.empty:
+                        row_data = df.iloc[-1]
+                        results.append({
+                            "code": code,
+                            "name": name,
+                            "current_price": float(row_data.get('close', 0))
+                        })
+                except:
+                    # 获取行情失败时返回基本信息
+                    results.append({
+                        "code": code,
+                        "name": name,
+                        "current_price": 0
+                    })
+                
+                if len(results) >= 20:
+                    break
+        
+        return {"results": results}
+    except Exception as e:
+        print(f"搜索接口错误：{e}")
+        raise HTTPException(status_code=500, detail=str(e))
